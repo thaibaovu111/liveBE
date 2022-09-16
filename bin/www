@@ -1,0 +1,134 @@
+#!/usr/bin/env node
+
+/**
+ * Module dependencies.
+ */
+
+const app = require('../app')
+const debug = require('debug')('myapp:server')
+const http = require('http')
+const nodeMediaServer = require('../media_server')
+const thumbnailGenerator = require('../cron/thumbnails')
+const session = require("express-session");
+const passport = require("passport");
+require('dotenv').config()
+const FileStore = require('session-file-store')(session)
+const Chat = require('../service/chat/chat')
+/**
+ * Get port from environment and store in Express.
+ */
+
+const port = normalizePort(process.env.PORT || '6868')
+app.set('port', port)
+
+/**
+ * Create HTTP server.
+ */
+
+const sessionMiddleware = session({
+  store: new FileStore({
+    path: './server/chats'
+  }),
+  maxAge: Date().now + (60 * 1000 * 30),
+  secret: process.env.SECRET_KEY,
+  resave: false,
+  saveUninitialized: false
+});
+const server = http.createServer(app)
+const io = require('socket.io')(server);
+// convert a connect middleware to a Socket.IO middleware
+const wrap = middleware => (socket, next) => middleware(socket.request, {}, next);
+io.use(wrap(sessionMiddleware));
+io.use(wrap(passport.initialize()));
+io.use(wrap(passport.session()));
+
+io.use((socket, next) => {
+  if (socket.request.user.token) {
+    next();
+  } else {
+    next(new Error('unauthorized'))
+  }
+});
+
+io.on('connect', (socket) => {
+  console.log(`new connection ${socket.id}`);
+  socket.on('whoami', (cb) => {
+    cb(socket.request.user ? socket.request.user.username : '');
+  });
+
+  const session = socket.request.session;
+  console.log(`saving sid ${socket.id} in session ${session.id}`);
+  session.socketId = socket.id;
+  session.save();
+});
+const chat = new Chat(io)
+chat.connection()
+
+/**
+ * Listen on provided port, on all network interfaces.
+ */
+
+server.listen(port)
+server.on('error', onError)
+server.on('listening', onListening)
+nodeMediaServer.run()
+thumbnailGenerator.start()
+/**
+ * Normalize a port into a number, string, or false.
+ */
+
+function normalizePort (val) {
+  const port = parseInt(val, 10)
+
+  if (isNaN(port)) {
+    // named pipe
+    return val
+  }
+
+  if (port >= 0) {
+    // port number
+    return port
+  }
+
+  return false
+}
+
+/**
+ * Event listener for HTTP server "error" event.
+ */
+
+function onError (error) {
+  if (error.syscall !== 'listen') {
+    throw error
+  }
+
+  const bind = typeof port === 'string'
+    ? 'Pipe ' + port
+    : 'Port ' + port
+
+  // handle specific listen errors with friendly messages
+  switch (error.code) {
+    case 'EACCES':
+      console.error(bind + ' requires elevated privileges')
+      process.exit(1)
+      break
+    case 'EADDRINUSE':
+      console.error(bind + ' is already in use')
+      process.exit(1)
+      break
+    default:
+      throw error
+  }
+}
+
+/**
+ * Event listener for HTTP server "listening" event.
+ */
+
+function onListening () {
+  const addr = server.address()
+  const bind = typeof addr === 'string'
+    ? 'pipe ' + addr
+    : 'port ' + addr.port
+  debug('Listening on ' + bind)
+}
