@@ -24,8 +24,7 @@ const config = {
     //   cert: ''
     // },
     trans: {
-      ffmpeg: '/usr/bin/ffmpeg', // for linux
-      // ffmpeg: 'C:/ffmpeg/bin/ffmpeg.exe', // for windown
+      ffmpeg: 'C:/ffmpeg/bin/ffmpeg.exe', // for windown
       tasks: [
         {
           app: 'live',
